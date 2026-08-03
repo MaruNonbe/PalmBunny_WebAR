@@ -52,7 +52,7 @@ const HAND_MODEL_URL =
  * 龍モデル相対パス。
  * GitHub Pagesでも動くように、Cドライブ直指定はしません。
  */
-const DRAGON_MODEL_PATH = "./assets/models/bunny.glb";
+const DRAGON_MODEL_PATH = "./bunny.glb";
 
 /**
  * DOM
@@ -709,7 +709,7 @@ function getReadableErrorMessage(error) {
   }
 
   if (message.includes("bunny.glb")) {
-    return "バニーモデル assets/models/bunny.glb が読み込めませんでした。配置場所とファイル名を確認してください。";
+    return "バニーモデル bunny.glb が読み込めませんでした。ファイルがルート直下に置かれているか確認してください。";
   }
 
   return message;
