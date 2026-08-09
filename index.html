@@ -22,6 +22,15 @@
     }
   }
   </script>
+  <script>
+  window.addEventListener('error', function (e) {
+    alert('JSエラー: ' + (e.message || '') + '\n' + (e.filename || '') + ':' + (e.lineno || ''));
+  });
+  window.addEventListener('unhandledrejection', function (e) {
+    alert('Promiseエラー: ' + (e.reason && e.reason.message ? e.reason.message : e.reason));
+  });
+</script>
+
 </head>
 
 <body>
