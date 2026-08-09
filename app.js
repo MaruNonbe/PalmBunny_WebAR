@@ -129,6 +129,9 @@ let handLandmarker = null;
 
 async function setupHandLandmarker() {
   setStatus("手検出モデルを読み込み中…");
+  const { HandLandmarker, FilesetResolver } = await import(
+    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs"
+  );
   const vision = await FilesetResolver.forVisionTasks(
     "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm"
   );
@@ -141,6 +144,8 @@ async function setupHandLandmarker() {
     runningMode: "VIDEO",
     numHands: 1,
   });
+}
+
 }
 
 // ---------- カメラ ----------
