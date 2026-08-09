@@ -250,17 +250,23 @@ function animate() {
 
 // ---------- 起動処理 ----------
 startButton.addEventListener("click", async () => {
+  alert("1: ボタン押下を検知");
   startButton.disabled = true;
   try {
+    alert("2: カメラ起動を試みます");
     await setupCamera();
+    alert("3: カメラ起動 完了");
     resizeRenderer();
     handController.resizeDebugCanvas(window.innerWidth, window.innerHeight, window.devicePixelRatio);
 
+    alert("4: 手検出モデル/ダンスモデルの読み込みを試みます");
     await Promise.all([setupHandLandmarker(), loadModel()]);
+    alert("5: 読み込み完了");
 
     startPanel.classList.add("hidden");
     animate();
   } catch (err) {
+    alert("エラー発生: " + (err && err.message ? err.message : String(err)));
     console.error(err);
     showError(`起動に失敗しました: ${err.message || err}`);
     startButton.disabled = false;
