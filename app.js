@@ -146,8 +146,6 @@ async function setupHandLandmarker() {
   });
 }
 
-
-
 // ---------- カメラ ----------
 async function setupCamera() {
   setStatus("カメラにアクセス中…");
