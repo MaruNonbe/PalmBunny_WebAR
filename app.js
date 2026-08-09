@@ -8,11 +8,8 @@
 
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
-import {
-  HandLandmarker,
-  FilesetResolver,
-} from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs";
 import { HandDragonController } from "./HandDragonController.js";
+
 
 // このファイルを、実際に配置したGLBのパスに合わせて変更してください
 const MODEL_URL = "./palm-dance.glb";
