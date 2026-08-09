@@ -15,7 +15,8 @@ import {
 import { HandDragonController } from "./HandDragonController.js";
 
 // このファイルを、実際に配置したGLBのパスに合わせて変更してください
-const MODEL_URL = "./assets/palm-dance.glb";
+const MODEL_URL = "./palm-dance.glb";
+
 
 const videoEl = document.getElementById("cameraVideo");
 const threeCanvas = document.getElementById("threeCanvas");
