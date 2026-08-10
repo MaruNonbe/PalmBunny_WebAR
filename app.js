@@ -7,8 +7,6 @@
 
 (async () => {
   try {
-(async () => {
-  try {
     alert("A: スクリプト開始");
 
     async function safeImport(label, url) {
