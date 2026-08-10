@@ -167,7 +167,7 @@
     async function setupCamera() {
       setStatus("カメラにアクセス中…");
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "environment", width: 960, height: 1280 },
+        video: { facingMode: "environment", width: 480, height: 640 },
         audio: false,
       });
       videoEl.srcObject = stream;
@@ -223,6 +223,7 @@
 
     const clock = new THREE.Clock();
     let lastHandSeenAt = 0;
+    let frameCounter = 0;
 
     function animate() {
       requestAnimationFrame(animate);
@@ -230,7 +231,8 @@
       const delta = clock.getDelta();
       if (mixer) mixer.update(delta);
 
-      if (handLandmarker && videoEl.readyState >= 2) {
+      frameCounter++;
+      if (handLandmarker && videoEl.readyState >= 2 && frameCounter % 3 === 0) {
         const results = handLandmarker.detectForVideo(videoEl, performance.now());
         const handInfo = handController.extractHandInfo(results);
 
