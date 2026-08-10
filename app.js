@@ -9,10 +9,14 @@
   try {
     alert("A: スクリプト開始");
 
-    const THREE = await import("three");
+    const THREE = await import(
+      "https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.module.js"
+    );
     alert("B: three.js 読み込みOK");
 
-    const { GLTFLoader } = await import("three/addons/loaders/GLTFLoader.js");
+    const { GLTFLoader } = await import(
+      "https://cdn.jsdelivr.net/npm/three@0.165.0/examples/jsm/loaders/GLTFLoader.js"
+    );
     alert("C: GLTFLoader 読み込みOK");
 
     const { HandDragonController } = await import("./HandDragonController.js");
