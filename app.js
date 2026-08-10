@@ -7,35 +7,7 @@
 
 (async () => {
   try {
-alert("A: スクリプト開始");
-
-    async function safeImport(label, url) {
-      try {
-        return await import(url);
-      } catch (e) {
-        alert(`${label} の読み込みに失敗しました\nURL: ${url}\nエラー: ${e && e.message ? e.message : e}`);
-        throw e;
-      }
-    }
-
-    const THREE = await safeImport(
-      "three.js",
-      "https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.module.js"
-    );
-    alert("B: three.js 読み込みOK");
-
-    const { GLTFLoader } = await safeImport(
-      "GLTFLoader",
-      "https://cdn.jsdelivr.net/npm/three@0.165.0/examples/jsm/loaders/GLTFLoader.js"
-    );
-    alert("C: GLTFLoader 読み込みOK");
-
-    const { HandDragonController } = await safeImport(
-      "HandDragonController",
-      "./HandDragonController.js"
-    );
-    alert("D: HandDragonController 読み込みOK");
-
+ーー
 
     const MODEL_URL = "./palm-dance.glb";
 
