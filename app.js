@@ -39,13 +39,6 @@
     const MODEL_URL = "./palm-dance.glb";
 
     const videoEl = document.getElementById("cameraVideo");
-    ...(この後は変更なし、今の内容のまま)...
-
-    
-
-    const MODEL_URL = "./palm-dance.glb";
-
-    const videoEl = document.getElementById("cameraVideo");
     const threeCanvas = document.getElementById("threeCanvas");
     const debugCanvas = document.getElementById("debugCanvas");
     const startPanel = document.getElementById("startPanel");
