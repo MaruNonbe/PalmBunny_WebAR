@@ -1,296 +1,383 @@
 /**
  * Palm VRM Dance WebAR
  *
- * 動的import + try/catchで全体を包み、
- * どこで失敗しても必ずアラートで検知できるようにしてあります。
+ * 動作実績のある「手のひら龍」アプリの構成に合わせて実装しています。
+ * (Orthographicカメラ + 時間ベースの手検出間引き + カメラ自動フォールバック)
  */
 
-(async () => {
+import * as THREE from "three";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+
+import {
+  HandLandmarker,
+  FilesetResolver,
+} from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
+
+import { HandDragonController } from "./HandDragonController.js";
+
+/**
+ * 調整用定数
+ */
+let MODEL_SCALE = 1.0;
+let MODEL_ROTATION_Y = 0.0;
+let MODEL_OFFSET_Y = 0.0;
+
+const PALM_SIZE_TO_MODEL_SCALE = 3.4;
+
+// 手検出の間隔(ms)。重い場合は 80〜120 に上げる
+const HAND_DETECTION_INTERVAL_MS = 60;
+
+// カメラ解像度
+const CAMERA_WIDTH = 640;
+const CAMERA_HEIGHT = 480;
+
+const HAND_MODEL_URL =
+  "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task";
+
+const MODEL_URL = "./palm-dance.glb";
+
+/**
+ * DOM
+ */
+const video = document.getElementById("cameraVideo");
+const threeCanvas = document.getElementById("threeCanvas");
+const debugCanvas = document.getElementById("debugCanvas");
+
+const startPanel = document.getElementById("startPanel");
+const startButton = document.getElementById("startButton");
+
+const statusBar = document.getElementById("statusBar");
+const errorBox = document.getElementById("errorBox");
+
+const debugToggleButton = document.getElementById("debugToggleButton");
+const landmarkToggleButton = document.getElementById("landmarkToggleButton");
+const tuneToggleButton = document.getElementById("tuneToggleButton");
+const tunePanel = document.getElementById("tunePanel");
+
+const scaleRange = document.getElementById("scaleRange");
+const offsetYRange = document.getElementById("offsetYRange");
+const rotationYRange = document.getElementById("rotationYRange");
+
+const scaleValue = document.getElementById("scaleValue");
+const offsetYValue = document.getElementById("offsetYValue");
+const rotationYValue = document.getElementById("rotationYValue");
+
+/**
+ * Three.js
+ */
+let scene, camera, renderer;
+let modelRoot, modelScene, mixer;
+
+/**
+ * MediaPipe
+ */
+let handLandmarker;
+let handController;
+
+/**
+ * 状態
+ */
+let started = false;
+let debugEnabled = false;
+let landmarksEnabled = true;
+
+let lastDetectionTime = 0;
+let lastVideoTime = -1;
+
+const targetPosition = new THREE.Vector3();
+const smoothedPosition = new THREE.Vector3();
+let targetScale = 1;
+let smoothedScale = 1;
+let modelOpacitySet = false;
+
+startButton.addEventListener("click", async () => {
+  if (started) return;
+  started = true;
+  hideError();
+  setStatus("カメラ準備中");
+
   try {
-    alert("A: スクリプト開始");
+    initThree();
+    initHandController();
+    setupUI();
+    handleResize();
 
-    async function safeImport(label, url) {
-      try {
-        return await import(url);
-      } catch (e) {
-        alert(`${label} の読み込みに失敗しました\nURL: ${url}\nエラー: ${e && e.message ? e.message : e}`);
-        throw e;
-      }
-    }
+    await initCamera();
+    await initMediaPipe();
+    await loadModel();
 
-    const THREE = await safeImport(
-      "three.js",
-      "https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.module.js"
-    );
-    alert("B: three.js 読み込みOK");
+    startPanel.classList.add("hidden");
+    setStatus("手のひらをカメラに向けてください");
 
-    const { GLTFLoader } = await safeImport(
-      "GLTFLoader",
-      "https://cdn.jsdelivr.net/npm/three@0.165.0/examples/jsm/loaders/GLTFLoader.js"
-    );
-    alert("C: GLTFLoader 読み込みOK");
-
-    const { HandDragonController } = await safeImport(
-      "HandDragonController",
-      "./HandDragonController.js"
-    );
-    alert("D: HandDragonController 読み込みOK");
-
-    const MODEL_URL = "./palm-dance.glb";
-
-    const videoEl = document.getElementById("cameraVideo");
-    const threeCanvas = document.getElementById("threeCanvas");
-    const debugCanvas = document.getElementById("debugCanvas");
-    const startPanel = document.getElementById("startPanel");
-    const startButton = document.getElementById("startButton");
-    const statusBar = document.getElementById("statusBar");
-    const errorBox = document.getElementById("errorBox");
-
-    const debugToggleButton = document.getElementById("debugToggleButton");
-    const landmarkToggleButton = document.getElementById("landmarkToggleButton");
-    const tuneToggleButton = document.getElementById("tuneToggleButton");
-    const tunePanel = document.getElementById("tunePanel");
-
-    const scaleRange = document.getElementById("scaleRange");
-    const scaleValue = document.getElementById("scaleValue");
-    const offsetYRange = document.getElementById("offsetYRange");
-    const offsetYValue = document.getElementById("offsetYValue");
-    const rotationYRange = document.getElementById("rotationYRange");
-    const rotationYValue = document.getElementById("rotationYValue");
-
-    function setStatus(text) {
-      statusBar.textContent = text;
-    }
-
-    function showError(message) {
-      errorBox.textContent = message;
-      errorBox.classList.remove("hidden");
-    }
-
-    const renderer = new THREE.WebGLRenderer({
-      canvas: threeCanvas,
-      alpha: true,
-      antialias: true,
-    });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-
-    const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(60, 1, 0.05, 20);
-    camera.position.set(0, 0, 0);
-
-    scene.add(new THREE.HemisphereLight(0xffffff, 0x445566, 1.3));
-    const dirLight = new THREE.DirectionalLight(0xffffff, 0.9);
-    dirLight.position.set(0.5, 1, 0.8);
-    scene.add(dirLight);
-
-    const modelAnchor = new THREE.Group();
-    modelAnchor.visible = false;
-    scene.add(modelAnchor);
-
-    let mixer = null;
-    let modelHeight = 1.0;
-
-    function resizeRenderer() {
-      const w = window.innerWidth;
-      const h = window.innerHeight;
-      renderer.setSize(w, h, false);
-      camera.aspect = w / h;
-      camera.updateProjectionMatrix();
-    }
-    window.addEventListener("resize", () => {
-      resizeRenderer();
-      handController.resizeDebugCanvas(window.innerWidth, window.innerHeight, window.devicePixelRatio);
-    });
-    resizeRenderer();
-
-    function loadModel() {
-      return new Promise((resolve, reject) => {
-        const loader = new GLTFLoader();
-        setStatus("ダンスモデルを読み込み中…");
-        loader.load(
-          MODEL_URL,
-          (gltf) => {
-            const root = gltf.scene;
-            modelAnchor.add(root);
-
-            const box = new THREE.Box3().setFromObject(root);
-            modelHeight = Math.max(box.max.y - box.min.y, 0.5);
-            root.position.y -= box.min.y;
-
-            if (gltf.animations && gltf.animations.length > 0) {
-              mixer = new THREE.AnimationMixer(root);
-              const action = mixer.clipAction(gltf.animations[0]);
-              action.setLoop(THREE.LoopRepeat, Infinity);
-              action.play();
-            }
-
-            setStatus("手のひらを画面に映してください");
-            resolve();
-          },
-          (progress) => {
-            if (progress.total) {
-              const pct = Math.round((progress.loaded / progress.total) * 100);
-              setStatus(`ダンスモデルを読み込み中… ${pct}%`);
-            }
-          },
-          (err) => reject(err)
-        );
-      });
-    }
-
-    const handController = new HandDragonController({
-      video: videoEl,
-      debugCanvas,
-    });
-
-    let handLandmarker = null;
-
-    async function setupHandLandmarker() {
-      setStatus("手検出モデルを読み込み中…");
-      const { HandLandmarker, FilesetResolver } = await import(
-        "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs"
-      );
-      const vision = await FilesetResolver.forVisionTasks(
-        "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm"
-      );
-      handLandmarker = await HandLandmarker.createFromOptions(vision, {
-        baseOptions: {
-          modelAssetPath:
-            "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
-          delegate: "GPU",
-        },
-        runningMode: "VIDEO",
-        numHands: 1,
-      });
-    }
-
-    async function setupCamera() {
-      setStatus("カメラにアクセス中…");
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "environment", width: 480, height: 640 },
-        audio: false,
-      });
-      videoEl.srcObject = stream;
-      await videoEl.play();
-    }
-
-    const PLACEMENT_DISTANCE = 0.6;
-    const ndcVector = new THREE.Vector3();
-
-    function screenPointToWorld(x, y, distance) {
-      const w = window.innerWidth;
-      const h = window.innerHeight;
-      ndcVector.set((x / w) * 2 - 1, -(y / h) * 2 + 1, 0.5);
-      ndcVector.unproject(camera);
-      const dir = ndcVector.sub(camera.position).normalize();
-      return camera.position.clone().add(dir.multiplyScalar(distance));
-    }
-
-    let tuneScale = parseFloat(scaleRange.value);
-    let tuneOffsetY = parseFloat(offsetYRange.value);
-    let tuneRotationY = parseFloat(rotationYRange.value);
-
-    scaleRange.addEventListener("input", () => {
-      tuneScale = parseFloat(scaleRange.value);
-      scaleValue.textContent = tuneScale.toFixed(1);
-    });
-    offsetYRange.addEventListener("input", () => {
-      tuneOffsetY = parseFloat(offsetYRange.value);
-      offsetYValue.textContent = tuneOffsetY.toFixed(2);
-    });
-    rotationYRange.addEventListener("input", () => {
-      tuneRotationY = parseFloat(rotationYRange.value);
-      rotationYValue.textContent = tuneRotationY.toFixed(2);
-    });
-
-    tuneToggleButton.addEventListener("click", () => {
-      tunePanel.classList.toggle("hidden");
-    });
-
-    let debugOn = false;
-    debugToggleButton.addEventListener("click", () => {
-      debugOn = !debugOn;
-      handController.setDebugEnabled(debugOn);
-      debugToggleButton.textContent = debugOn ? "デバッグ ON" : "デバッグ OFF";
-    });
-
-    let landmarksOn = true;
-    landmarkToggleButton.addEventListener("click", () => {
-      landmarksOn = !landmarksOn;
-      handController.setLandmarksEnabled(landmarksOn);
-      landmarkToggleButton.textContent = landmarksOn ? "ランドマーク ON" : "ランドマーク OFF";
-    });
-
-    const clock = new THREE.Clock();
-    let lastHandSeenAt = 0;
-    let frameCounter = 0;
-
-    function animate() {
-      requestAnimationFrame(animate);
-
-      const delta = clock.getDelta();
-      if (mixer) mixer.update(delta);
-
-      frameCounter++;
-      if (handLandmarker && videoEl.readyState >= 2 && frameCounter % 3 === 0) {
-        const results = handLandmarker.detectForVideo(videoEl, performance.now());
-        const handInfo = handController.extractHandInfo(results);
-
-        if (handInfo) {
-          lastHandSeenAt = performance.now();
-          modelAnchor.visible = true;
-
-          const worldPos = screenPointToWorld(
-            handInfo.screenCenter.x,
-            handInfo.screenCenter.y,
-            PLACEMENT_DISTANCE
-          );
-          modelAnchor.position.copy(worldPos);
-
-          const baseScale = (handInfo.palmSize / modelHeight) * 3.4;
-          const finalScale = baseScale * tuneScale;
-          modelAnchor.scale.setScalar(finalScale);
-
-          modelAnchor.rotation.y = tuneRotationY;
-          modelAnchor.position.y += tuneOffsetY * finalScale;
-
-          setStatus(`手のひらを検出中 (${handInfo.handedness === "Left" ? "左手" : "右手"})`);
-        } else if (performance.now() - lastHandSeenAt > 400) {
-          modelAnchor.visible = false;
-          setStatus("手のひらを画面に映してください");
-        }
-      }
-
-      renderer.render(scene, camera);
-    }
-
-    alert("E: 初期化完了。ボタンにイベントを登録します");
-
-    startButton.addEventListener("click", async () => {
-      alert("1: ボタン押下を検知");
-      startButton.disabled = true;
-      try {
-        alert("2: カメラ起動を試みます");
-        await setupCamera();
-        alert("3: カメラ起動 完了");
-        resizeRenderer();
-        handController.resizeDebugCanvas(window.innerWidth, window.innerHeight, window.devicePixelRatio);
-
-        alert("4: 手検出モデル/ダンスモデルの読み込みを試みます");
-        await Promise.all([setupHandLandmarker(), loadModel()]);
-        alert("5: 読み込み完了");
-
-        startPanel.classList.add("hidden");
-        animate();
-      } catch (err) {
-        alert("エラー発生(ボタン後): " + (err && err.message ? err.message : String(err)));
-        console.error(err);
-        showError(`起動に失敗しました: ${err.message || err}`);
-        startButton.disabled = false;
-      }
-    });
-  } catch (err) {
-    alert("初期化エラー: " + (err && err.message ? err.message : String(err)));
-    console.error(err);
+    requestAnimationFrame(animate);
+  } catch (error) {
+    console.error(error);
+    showError("起動に失敗しました。\n\n" + (error && error.message ? error.message : String(error)));
+    setStatus("エラーが発生しました");
+    started = false;
   }
-})();
+});
+
+async function initCamera() {
+  video.setAttribute("playsinline", "");
+  video.setAttribute("webkit-playsinline", "");
+  video.muted = true;
+  video.autoplay = true;
+
+  const environmentConstraints = {
+    audio: false,
+    video: {
+      facingMode: { ideal: "environment" },
+      width: { ideal: CAMERA_WIDTH },
+      height: { ideal: CAMERA_HEIGHT },
+    },
+  };
+  const userConstraints = {
+    audio: false,
+    video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } },
+  };
+
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia(environmentConstraints);
+  } catch (error) {
+    console.warn("背面カメラ起動に失敗。前面カメラへフォールバックします。", error);
+    stream = await navigator.mediaDevices.getUserMedia(userConstraints);
+  }
+
+  video.srcObject = stream;
+  await new Promise((resolve) => {
+    video.onloadedmetadata = () => {
+      video.play();
+      resolve();
+    };
+  });
+
+  setStatus("手のひらをカメラに向けてください");
+}
+
+async function initMediaPipe() {
+  setStatus("手検出モデルを読み込み中…");
+  const vision = await FilesetResolver.forVisionTasks(
+    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm"
+  );
+  handLandmarker = await HandLandmarker.createFromOptions(vision, {
+    baseOptions: {
+      modelAssetPath: HAND_MODEL_URL,
+      delegate: "GPU",
+    },
+    runningMode: "VIDEO",
+    numHands: 1,
+  });
+}
+
+function initThree() {
+  scene = new THREE.Scene();
+
+  camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.01, 100);
+  camera.position.set(0, 0, 10);
+  camera.lookAt(0, 0, 0);
+
+  renderer = new THREE.WebGLRenderer({
+    canvas: threeCanvas,
+    alpha: true,
+    antialias: true,
+  });
+  renderer.setClearColor(0x000000, 0);
+
+  scene.add(new THREE.AmbientLight(0xffffff, 1.8));
+  const keyLight = new THREE.DirectionalLight(0xffffff, 2.0);
+  keyLight.position.set(3, 4, 5);
+  scene.add(keyLight);
+
+  modelRoot = new THREE.Group();
+  modelRoot.visible = false;
+  scene.add(modelRoot);
+}
+
+function initHandController() {
+  handController = new HandDragonController({ video, debugCanvas });
+}
+
+function loadModel() {
+  return new Promise((resolve, reject) => {
+    setStatus("ダンスモデルを読み込み中…");
+    const loader = new GLTFLoader();
+    loader.load(
+      MODEL_URL,
+      (gltf) => {
+        modelScene = gltf.scene;
+        modelScene.name = "DanceModel";
+
+        modelScene.traverse((child) => {
+          if (child.isMesh) {
+            child.frustumCulled = false;
+            // GLBにマテリアル情報が無いため、見やすい無地グレーを割り当てる
+            child.material = new THREE.MeshStandardMaterial({
+              color: 0xb0b0b0,
+              roughness: 0.7,
+              metalness: 0.0,
+            });
+          }
+        });
+
+        const box = new THREE.Box3().setFromObject(modelScene);
+        modelScene.position.y -= box.min.y;
+
+        modelRoot.add(modelScene);
+
+        if (gltf.animations && gltf.animations.length > 0) {
+          mixer = new THREE.AnimationMixer(modelScene);
+          const action = mixer.clipAction(gltf.animations[0]);
+          action.setLoop(THREE.LoopRepeat, Infinity);
+          action.play();
+        }
+
+        resolve();
+      },
+      undefined,
+      (err) => reject(err)
+    );
+  });
+}
+
+function setupUI() {
+  debugToggleButton.addEventListener("click", () => {
+    debugEnabled = !debugEnabled;
+    debugToggleButton.textContent = debugEnabled ? "デバッグ ON" : "デバッグ OFF";
+    handController.setDebugEnabled(debugEnabled);
+  });
+
+  landmarkToggleButton.addEventListener("click", () => {
+    landmarksEnabled = !landmarksEnabled;
+    landmarkToggleButton.textContent = landmarksEnabled ? "ランドマーク ON" : "ランドマーク OFF";
+    handController.setLandmarksEnabled(landmarksEnabled);
+  });
+
+  tuneToggleButton.addEventListener("click", () => {
+    tunePanel.classList.toggle("hidden");
+  });
+
+  scaleRange.addEventListener("input", () => {
+    MODEL_SCALE = Number(scaleRange.value);
+    scaleValue.textContent = MODEL_SCALE.toFixed(1);
+  });
+
+  offsetYRange.addEventListener("input", () => {
+    MODEL_OFFSET_Y = Number(offsetYRange.value);
+    offsetYValue.textContent = MODEL_OFFSET_Y.toFixed(2);
+  });
+
+  rotationYRange.addEventListener("input", () => {
+    MODEL_ROTATION_Y = Number(rotationYRange.value);
+    rotationYValue.textContent = MODEL_ROTATION_Y.toFixed(2);
+  });
+
+  window.addEventListener("resize", handleResize);
+  window.addEventListener("orientationchange", () => {
+    setTimeout(handleResize, 300);
+  });
+}
+
+function handleResize() {
+  const width = window.innerWidth;
+  const height = window.innerHeight;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+
+  if (renderer) {
+    renderer.setPixelRatio(dpr);
+    renderer.setSize(width, height, false);
+  }
+  if (camera) {
+    const aspect = width / height;
+    camera.left = -aspect;
+    camera.right = aspect;
+    camera.top = 1;
+    camera.bottom = -1;
+    camera.updateProjectionMatrix();
+  }
+  if (handController) {
+    handController.resizeDebugCanvas(width, height, dpr);
+  }
+}
+
+function animate(now) {
+  requestAnimationFrame(animate);
+
+  const delta = 0.016;
+
+  detectHandsIfNeeded(now);
+
+  if (mixer) mixer.update(delta);
+
+  smoothedPosition.lerp(targetPosition, 0.25);
+  smoothedScale = THREE.MathUtils.lerp(smoothedScale, targetScale, 0.25);
+
+  modelRoot.position.copy(smoothedPosition);
+  modelRoot.scale.setScalar(smoothedScale);
+  if (modelScene) modelScene.rotation.y = MODEL_ROTATION_Y;
+
+  renderer.render(scene, camera);
+}
+
+function detectHandsIfNeeded(now) {
+  if (!handLandmarker || !video.videoWidth) return;
+  if (now - lastDetectionTime < HAND_DETECTION_INTERVAL_MS) return;
+  if (video.currentTime === lastVideoTime) return;
+
+  lastDetectionTime = now;
+  lastVideoTime = video.currentTime;
+
+  let results;
+  try {
+    results = handLandmarker.detectForVideo(video, now);
+  } catch (error) {
+    console.warn("手検出エラー", error);
+    return;
+  }
+
+  const handInfo = handController.extractHandInfo(results);
+
+  if (!handInfo) {
+    modelRoot.visible = false;
+    setStatus("手のひらをカメラに向けてください");
+    return;
+  }
+
+  const world = screenToWorld(handInfo.screenCenter.x, handInfo.screenCenter.y);
+
+  targetPosition.set(world.x, world.y + MODEL_OFFSET_Y, 0);
+  targetScale = THREE.MathUtils.clamp(
+    MODEL_SCALE * PALM_SIZE_TO_MODEL_SCALE * handInfo.palmSize,
+    0.1,
+    6
+  );
+
+  modelRoot.visible = true;
+  setStatus(`手のひらを検出中 (${handInfo.handedness === "Left" ? "左手" : "右手"})`);
+}
+
+function screenToWorld(screenX, screenY) {
+  const width = window.innerWidth;
+  const height = window.innerHeight;
+  const aspect = width / height;
+
+  const x = (screenX / width) * 2 * aspect - aspect;
+  const y = -(screenY / height) * 2 + 1;
+
+  return { x, y };
+}
+
+function setStatus(message) {
+  statusBar.textContent = message;
+}
+
+function showError(message) {
+  errorBox.textContent = message;
+  errorBox.classList.remove("hidden");
+}
+
+function hideError() {
+  errorBox.textContent = "";
+  errorBox.classList.add("hidden");
+}
