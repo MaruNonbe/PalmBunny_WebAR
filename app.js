@@ -209,15 +209,12 @@ function loadModel() {
         modelScene = gltf.scene;
         modelScene.name = "DanceModel";
 
-        modelScene.traverse((child) => {
+               modelScene.traverse((child) => {
           if (child.isMesh) {
             child.frustumCulled = false;
-            // GLBにマテリアル情報が無いため、見やすい無地グレーを割り当てる
-            child.material = new THREE.MeshStandardMaterial({
-              color: 0xb0b0b0,
-              roughness: 0.7,
-              metalness: 0.0,
-            });
+          }
+        });
+
           }
         });
 
