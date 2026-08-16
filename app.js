@@ -215,8 +215,7 @@ function loadModel() {
           }
         });
 
-          }
-        });
+    
 
         const box = new THREE.Box3().setFromObject(modelScene);
         modelScene.position.y -= box.min.y;
