@@ -207,15 +207,13 @@ function loadModel() {
       MODEL_URL,
       (gltf) => {
         modelScene = gltf.scene;
-        modelScene.name = "DanceModel";
+           modelScene.name = "DanceModel";
 
-               modelScene.traverse((child) => {
+        modelScene.traverse((child) => {
           if (child.isMesh) {
             child.frustumCulled = false;
           }
         });
-
-    
 
         const box = new THREE.Box3().setFromObject(modelScene);
         modelScene.position.y -= box.min.y;
